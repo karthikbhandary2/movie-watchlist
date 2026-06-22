@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -16,11 +17,16 @@ func GetWatchlist(c *gin.Context) {
 	sort := c.DefaultQuery("sort", "date_added")
 	order := c.DefaultQuery("order", "desc")
 
+	log.Printf("GetWatchlist called: filter=%s sort=%s order=%s", filter, sort, order) // add this
+
 	items, err := db.GetAll(filter, sort, order)
 	if err != nil {
+		log.Printf("GetAll returned error: %v", err) // add this
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
 		return
 	}
+
+	log.Printf("GetAll returned %d items", len(items)) // add this
 	c.JSON(http.StatusOK, items)
 }
 

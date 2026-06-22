@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"time"
@@ -43,6 +44,8 @@ func tmdbGet(path string, params map[string]string) ([]byte, error) {
 // SearchMovies handles GET /api/movies/search?q=inception
 func SearchMovies(c *gin.Context) {
 	q := c.Query("q")
+	log.Printf("SearchMovies called with q=%s", q)
+
 	if q == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "q parameter is required"})
 		return
@@ -59,12 +62,20 @@ func SearchMovies(c *gin.Context) {
 		"include_adult": "false",
 	})
 	if err != nil {
+		log.Printf("tmdbGet error: %v", err)
 		c.JSON(http.StatusBadGateway, gin.H{"error": "Failed to reach TMDB"})
 		return
 	}
 
+	log.Printf("tmdbGet response length: %d bytes", len(body))
+
 	var result any
-	json.Unmarshal(body, &result)
+	if err := json.Unmarshal(body, &result); err != nil {
+		log.Printf("json.Unmarshal error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse response"})
+		return
+	}
+
 	c.JSON(http.StatusOK, result)
 }
 

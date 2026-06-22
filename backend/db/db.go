@@ -47,48 +47,42 @@ func createTables() {
         date_watched TEXT
 	);
 	`
-	if _, err := DB.Query(query); err != nil {
-		log.Fatalf("Failed to create table %v", err)
+	if _, err := DB.Exec(query); err != nil {
+		log.Fatalf("Failed to create tables: %v", err)
+	} else {
+		log.Println("Tables ready")
 	}
 }
 
 func GetAll(filter, sort, order string) ([]models.WatchListItem, error) {
-	//Whitelist sort cols to prevent SQL injection
 	allowed := map[string]bool{
 		"date_added": true, "rating": true,
 		"title": true, "date_watched": true,
 	}
-	// if the sort value is not in the allowed map set it to `date_added`
 	if !allowed[sort] {
 		sort = "date_added"
 	}
-	// Anything that is not `asc` set it to desc
 	if order != "asc" {
 		order = "desc"
 	}
 
-	query := "SELECT * FROM watchlist"
-	args := []any{}
+	query := "SELECT id, tmdb_id, title, poster_path, release_year, genres, overview, watched, rating, notes, date_added, date_watched FROM watchlist"
 
 	switch filter {
 	case "watched":
-		query += "WHERE watched = 1"
+		query += " WHERE watched = 1"
 	case "unwatched":
-		query += "WHERE watched = 0"
+		query += " WHERE watched = 0"
 	default:
-		// return everything
 	}
 
-	// order the output
 	query += fmt.Sprintf(" ORDER BY %s %s", sort, order)
 
-	//query
-	rows, err := DB.Query(query, args...)
+	rows, err := DB.Query(query)
 	if err != nil {
+		log.Printf("GetAll error: %v", err)
 		return nil, err
 	}
-
-	// release after the function returns
 	defer rows.Close()
 
 	var items []models.WatchListItem
@@ -96,34 +90,37 @@ func GetAll(filter, sort, order string) ([]models.WatchListItem, error) {
 		var item models.WatchListItem
 		var genresJSON string
 		var watchedInt int
+		var dateWatched sql.NullString
+		var rating sql.NullFloat64
 
 		err := rows.Scan(
-			&item.ID,
-			&item.TmdbID,
-			&item.Title,
-			&item.PosterPath,
-			&item.ReleaseYear,
-			&genresJSON,
-			&item.Overview,
-			&watchedInt,
-			&item.Rating,
-			&item.Notes,
-			&item.DateAdded,
-			&item.DateWatched,
+			&item.ID, &item.TmdbID, &item.Title,
+			&item.PosterPath, &item.ReleaseYear,
+			&genresJSON, &item.Overview,
+			&watchedInt, &rating, &item.Notes,
+			&item.DateAdded, &dateWatched,
 		)
 		if err != nil {
+			log.Printf("Scan error: %v", err)
 			return nil, err
 		}
 
-		//convert stored JSON string -> []string
 		json.Unmarshal([]byte(genresJSON), &item.Genres)
-		//if true item.Watched is set to 1 otherwise 0
 		item.Watched = watchedInt == 1
+
+		if dateWatched.Valid {
+			s := dateWatched.String
+			item.DateWatched = &s
+		}
+		if rating.Valid {
+			item.Rating = &rating.Float64
+		}
 
 		items = append(items, item)
 	}
+
 	if items == nil {
-		items = []models.WatchListItem{} // return [] not null in JSON
+		items = []models.WatchListItem{}
 	}
 	return items, nil
 }
@@ -131,30 +128,21 @@ func GetAll(filter, sort, order string) ([]models.WatchListItem, error) {
 // Insert adds a new movie to the watchlist
 func Insert(req models.AddMovieRequest) (int64, error) {
 	genresJSON, _ := json.Marshal(req.Genres)
-	result, err := DB.Exec(`
-        INSERT INTO watchlist (
-		tmdb_id, 
-		title, 
-		poster_path, 
-		release_year, 
-		genres, 
-		overview
-		) VALUES (?, ?, ?, ?, ?, ?)`,
-        req.TmdbID, 
-		req.Title, 
-		req.PosterPath,
-        req.ReleaseYear, 
-		string(genresJSON), 
-		req.Overview,
-	)
 
+	result, err := DB.Exec(`
+        INSERT INTO watchlist (tmdb_id, title, poster_path, release_year, genres, overview)
+        VALUES (?, ?, ?, ?, ?, ?)`,
+		req.TmdbID, req.Title, req.PosterPath,
+		req.ReleaseYear, string(genresJSON), req.Overview,
+	)
 	if err != nil {
+		log.Printf("Insert error: %v", err) // add this
 		return 0, err
 	}
 	return result.LastInsertId()
 }
 
-//Update modifies rating, notes, or watched status
+// Update modifies rating, notes, or watched status
 func Update(id int64, req models.UpdateRequest) (int64, error) {
 	if req.Watched == nil && req.Rating == nil && req.Notes == nil {
 		return 0, fmt.Errorf("no fields to update")
@@ -177,7 +165,7 @@ func Update(id int64, req models.UpdateRequest) (int64, error) {
 		if *req.Watched {
 			setClauses = append(setClauses, "date_watched = ?")
 			args = append(args, time.Now().UTC().Format(time.RFC3339))
-		}else {
+		} else {
 			setClauses = append(setClauses, "date_watched = NULL")
 		}
 	}
@@ -193,11 +181,11 @@ func Update(id int64, req models.UpdateRequest) (int64, error) {
 	args = append(args, id)
 
 	result, err := DB.Exec(query, args...)
-    if err != nil {
-        return 0, err
-    }
-    affected, _ := result.RowsAffected()
-    return affected, nil
+	if err != nil {
+		return 0, err
+	}
+	affected, _ := result.RowsAffected()
+	return affected, nil
 }
 
 func Delete(id int64) (int64, error) {

@@ -12,7 +12,7 @@ type WatchListItem struct {
 	Rating      *float64 `json:"rating"`
 	Notes       string   `json:"notes"`
 	DateAdded   string   `json:"date_added"`
-	DateWatched string   `json:"date_watched"`
+	DateWatched *string  `json:"date_watched"`
 }
 
 type AddMovieRequest struct {

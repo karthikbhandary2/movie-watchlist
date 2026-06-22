@@ -14,12 +14,6 @@ import (
 var RedisClient *redis.Client
 var ctx = context.Background()
 
-type responseCapture struct {
-	gin.ResponseWriter
-	body   *bytes.Buffer
-	status int
-}
-
 // InitRedis sets up the Redis connection
 func InitRedis(url string) {
 	opts, err := redis.ParseURL(url)
@@ -46,24 +40,36 @@ func Cache(ttl time.Duration) gin.HandlerFunc {
 
 		key := "cache:" + c.Request.URL.RequestURI()
 
-		//check cache
 		cached, err := RedisClient.Get(ctx, key).Bytes()
-		if err != nil {
+		if err == nil {
 			log.Printf("Cache HIT: %s", key)
 			c.Data(http.StatusOK, "application/json", cached)
-			c.Abort() // stop handler chain - we responded
+			c.Abort()
 			return
 		}
 
-		//cache miss - capture the response
-		writer := &responseCapture{ResponseWriter: c.Writer, body: &bytes.Buffer{}}
+		writer := newResponseCapture(c.Writer)
 		c.Writer = writer
-		c.Next() // run the actual handler
+		c.Next()
 
-		if writer.status == http.StatusOK {
+		if writer.status == http.StatusOK && writer.body.Len() > 0 {
 			RedisClient.Set(ctx, key, writer.body.Bytes(), ttl)
 			log.Printf("Cache SET: %s (%v)", key, ttl)
 		}
+	}
+}
+
+type responseCapture struct {
+	gin.ResponseWriter
+	body   *bytes.Buffer
+	status int
+}
+
+func newResponseCapture(w gin.ResponseWriter) *responseCapture {
+	return &responseCapture{
+		ResponseWriter: w,
+		body:           &bytes.Buffer{},
+		status:         http.StatusOK, // default to 200 instead of 0
 	}
 }
 
